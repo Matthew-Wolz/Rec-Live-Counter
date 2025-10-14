@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rec Center — Live Occupancy (Prototype)</title>
+
+  <!-- Chart.js (no build step needed) -->  
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+  <!-- Our styles -->
+  <link rel="stylesheet" href="./styles/styles.css">
+</head>
+<body>
+  <div class="container">
+    <div class="card" role="region" aria-label="Live occupancy histogram">
+      <header class="card-header">
+        <div>
+          <div class="title">Rec Center — People Present</div>
+          <div class="subtitle">15-minute interval • automatically refresh</div>
+        </div>
+        <div class="toolbar">
+          <button id="refreshBtn" class="btn" title="Refresh now">⟲ Refresh</button>
+          <button id="toggleTheme" class="btn" title="Toggle theme">🌓 Theme</button>
+          <button id="useMock" class="btn" title="Use mock data for demo">🧪 Mock</button>
+          <span class="pill" id="countdown">Next refresh: —</span>
+        </div>
+      </header>
+
+      <div class="content">
+        <div class="row">
+          <div class="meta">
+            <span class="status"><span class="dot" id="statusDot"></span><span id="statusText">Live</span></span>
+            <span>|</span>
+            <span>Last updated: <strong id="lastUpdated">—</strong></span>
+            <span>|</span>
+            <span>Timezone: <strong id="tz">—</strong></span>
+          </div>
+        </div>
+        <div class="grid">
+          <canvas id="chart" aria-label="People present by 15-minute bins" role="img"></canvas>
+        </div>
+      </div>
+
+      <footer>
+        Benjamin made this!!!
+      </footer>
+    </div>
+  </div>
+
+  <!-- Our app code -->
+  <script defer src="./scripts/app.js"></script>
+</body>
+</html>
