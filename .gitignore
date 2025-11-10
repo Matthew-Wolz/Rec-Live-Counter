@@ -208,4 +208,5 @@ __marimo__/
 
 # Service account credentials (security)
 service-account.json
+service-account-oneline.txt
 token.json
