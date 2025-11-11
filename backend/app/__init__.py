@@ -5,56 +5,94 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 
-from .sheets import fetch_sheet_data, process_hourly_breakdown
-
 load_dotenv()
+
+# Import sheets module with error handling
+try:
+    from .sheets import fetch_sheet_data, process_hourly_breakdown
+    sheets_available = True
+except Exception as e:
+    print(f"Warning: Could not import sheets module: {e}", file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    sheets_available = False
+    fetch_sheet_data = None
+    process_hourly_breakdown = None
 
 def create_app(test_config=None):
     """Create and configure the Flask application."""
     # Serve the frontend directory so users can open the UI at http://127.0.0.1:5000/
     # Handle both local development and serverless deployment paths
-    try:
-        # Try relative path first (for serverless)
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        frontend_dir = os.path.join(current_dir, '..', '..', 'frontend')
-        frontend_dir = os.path.abspath(frontend_dir)
-        
-        # Verify the directory exists
-        if not os.path.exists(frontend_dir):
-            # Try alternative path
-            frontend_dir = os.path.join(os.getcwd(), 'frontend')
-            if not os.path.exists(frontend_dir):
-                raise FileNotFoundError(f"Frontend directory not found. Tried: {frontend_dir}")
-    except Exception as e:
-        print(f"Warning: Could not resolve frontend directory: {e}", file=sys.stderr)
-        # Fallback to a relative path
-        frontend_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'frontend')
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_dir = os.path.join(current_dir, '..', '..', 'frontend')
+    frontend_dir = os.path.normpath(os.path.abspath(frontend_dir))
+    
+    # Verify the directory exists, if not try alternative paths
+    if not os.path.exists(frontend_dir):
+        # Try from current working directory
+        alt_frontend_dir = os.path.join(os.getcwd(), 'frontend')
+        if os.path.exists(alt_frontend_dir):
+            frontend_dir = alt_frontend_dir
+        else:
+            # Try relative to project root (for Vercel)
+            project_root = os.path.dirname(os.path.dirname(current_dir))
+            alt_frontend_dir = os.path.join(project_root, 'frontend')
+            if os.path.exists(alt_frontend_dir):
+                frontend_dir = alt_frontend_dir
+            else:
+                # Last resort: use the path anyway (might work in some environments)
+                print(f"Warning: Frontend directory may not exist: {frontend_dir}", file=sys.stderr)
     
     app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
     CORS(app)  # Enable CORS for all routes
     
     if test_config is None:
+        # Get environment variables with defaults
+        spreadsheet_id = os.getenv('SPREADSHEET_ID')
+        sheet_range = os.getenv('SHEET_RANGE', 'A:Q')
+        
         app.config.from_mapping(
-            SPREADSHEET_ID=os.getenv('SPREADSHEET_ID'),
-            SHEET_RANGE=os.getenv('SHEET_RANGE', 'A:Q')
+            SPREADSHEET_ID=spreadsheet_id,
+            SHEET_RANGE=sheet_range
         )
+        
+        # Log configuration (without sensitive data)
+        if not spreadsheet_id:
+            print("Warning: SPREADSHEET_ID environment variable not set", file=sys.stderr)
     else:
         app.config.update(test_config)
     
     @app.route('/api/hourly_breakdown')
     def hourly_breakdown():
         """Return the hourly breakdown of people in each area."""
+        if not sheets_available or not fetch_sheet_data or not process_hourly_breakdown:
+            return jsonify({
+                'error': 'Sheets module not available',
+                'status': 'error'
+            }), 500
+        
         try:
-            df = fetch_sheet_data(
-                app.config['SPREADSHEET_ID'],
-                app.config['SHEET_RANGE']
-            )
+            spreadsheet_id = app.config.get('SPREADSHEET_ID')
+            if not spreadsheet_id:
+                return jsonify({
+                    'error': 'SPREADSHEET_ID environment variable not set',
+                    'status': 'error'
+                }), 500
+            
+            sheet_range = app.config.get('SHEET_RANGE', 'A:Q')
+            df = fetch_sheet_data(spreadsheet_id, sheet_range)
             data = process_hourly_breakdown(df)
             return jsonify(data)
         except Exception as e:
+            import traceback
+            error_msg = str(e)
+            error_trace = traceback.format_exc()
+            print(f"Error in hourly_breakdown: {error_msg}", file=sys.stderr)
+            print(error_trace, file=sys.stderr)
             return jsonify({
-                'error': str(e),
-                'status': 'error'
+                'error': error_msg,
+                'status': 'error',
+                'type': type(e).__name__
             }), 500
 
     # Serve the single-page frontend (index.html) at the root
