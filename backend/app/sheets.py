@@ -1,4 +1,3 @@
-"""Google Sheets data fetching and processing module."""
 import os
 from datetime import datetime, timezone
 from typing import Dict, List

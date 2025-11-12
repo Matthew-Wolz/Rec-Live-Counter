@@ -1,4 +1,3 @@
-"""Flask application factory and configuration."""
 import os
 import sys
 from flask import Flask, jsonify

@@ -1,7 +1,4 @@
-"""
-Vercel serverless function entry point for Flask application.
-Vercel's Python runtime automatically handles WSGI apps, so we just expose the Flask app directly.
-"""
+
 import sys
 import os
 

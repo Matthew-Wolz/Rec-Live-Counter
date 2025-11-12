@@ -1,7 +1,4 @@
-// ---------- configuration ----------
-// Auto-detect API URL based on current location
-// If running from file:// or localhost, use local Flask server
-// Otherwise, use relative URL (works when deployed)
+
 const getApiUrl = () => {
   if (window.location.protocol === 'file:') {
     return 'http://127.0.0.1:5000/api/hourly_breakdown';
