@@ -16,10 +16,8 @@ const PLACES = [
   "Multipurpose Gym",
   "Track",
   "Aerobics Room",
-  "Cubby Cove",
   "Table Tennis",
-  "Vicore Equipment",
-  "Bikes in Lobby"
+  "Lobby"
 ];
 
 // ---- state (declare ONCE) ----

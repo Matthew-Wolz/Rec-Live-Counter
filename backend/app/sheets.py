@@ -15,9 +15,7 @@ AREA_MAPPINGS = {
     'Track': ['Track', 'CV Rowers', 'Bikes on Track', 'CV Ellipticals'],
     'Aerobics Room': ['Aerobics Room'],
     'Table Tennis': ['Table Tennis'],
-    'Cubby Cove': ['Cubby "Cove"'],
-    'Vicore Equipment': ['Vicore Equipment'],
-    'Bikes in Lobby': ['Bikes in Lobby']
+    'Lobby': ['Cubby "Cove"', 'Vicore Equipment', 'Bikes in Lobby']
 }
 
 def get_sheets_service():
