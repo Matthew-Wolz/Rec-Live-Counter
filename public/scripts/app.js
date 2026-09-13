@@ -93,10 +93,14 @@ function shouldShowClosedMessage(lastUpdatedUtc) {
   return !isWithinOpenHours() || isDataStale(lastUpdatedUtc);
 }
 
-function showStatusMessage(show) {
+const DEFAULT_STATUS_MESSAGE =
+  'There have been no updates recently. Please check the hours to make sure the Student Recreation Center is open.';
+
+function showStatusMessage(show, text = DEFAULT_STATUS_MESSAGE) {
   const msg = el('statusMessage');
   const wrap = el('chartWrap');
   if (show) {
+    msg.textContent = text;
     msg.hidden = false;
     wrap.hidden = true;
     if (chart) {
@@ -252,6 +256,11 @@ async function refresh() {
     console.log('Data refreshed successfully. Next refresh in 15 minutes.');
   } catch (error) {
     handleError(error);
+    latestPayload = null;
+    showStatusMessage(
+      true,
+      'Unable to load live occupancy data right now. Please try again shortly.'
+    );
     lastRefreshTime = Date.now();
   }
 }
