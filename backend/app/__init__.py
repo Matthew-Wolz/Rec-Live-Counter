@@ -1,12 +1,14 @@
 import os
 import sys
-from flask import Flask, jsonify
+import time
+from flask import Flask, jsonify, make_response
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Import sheets module with error handling
+CACHE_TTL_SECONDS = 120  # collapse concurrent viewer bursts onto one Sheets read
+
 try:
     from .sheets import fetch_sheet_data, process_hourly_breakdown
     sheets_available = True
@@ -18,70 +20,85 @@ except Exception as e:
     fetch_sheet_data = None
     process_hourly_breakdown = None
 
+# Simple in-process cache (helps warm Vercel instances; not shared across isolates)
+_cache = {
+    'data': None,
+    'expires_at': 0.0,
+}
+
+
+def _resolve_static_dir():
+    """Prefer public/ (Vercel static) then frontend/ (legacy local path)."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.normpath(os.path.join(current_dir, '..', '..'))
+    candidates = [
+        os.path.join(project_root, 'public'),
+        os.path.join(project_root, 'frontend'),
+        os.path.join(os.getcwd(), 'public'),
+        os.path.join(os.getcwd(), 'frontend'),
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            return os.path.normpath(os.path.abspath(path))
+    fallback = os.path.normpath(os.path.join(project_root, 'public'))
+    print(f"Warning: Static directory may not exist: {fallback}", file=sys.stderr)
+    return fallback
+
+
 def create_app(test_config=None):
     """Create and configure the Flask application."""
-    # Serve the frontend directory so users can open the UI at http://127.0.0.1:5000/
-    # Handle both local development and serverless deployment paths
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    frontend_dir = os.path.join(current_dir, '..', '..', 'frontend')
-    frontend_dir = os.path.normpath(os.path.abspath(frontend_dir))
-    
-    # Verify the directory exists, if not try alternative paths
-    if not os.path.exists(frontend_dir):
-        # Try from current working directory
-        alt_frontend_dir = os.path.join(os.getcwd(), 'frontend')
-        if os.path.exists(alt_frontend_dir):
-            frontend_dir = alt_frontend_dir
-        else:
-            # Try relative to project root (for Vercel)
-            project_root = os.path.dirname(os.path.dirname(current_dir))
-            alt_frontend_dir = os.path.join(project_root, 'frontend')
-            if os.path.exists(alt_frontend_dir):
-                frontend_dir = alt_frontend_dir
-            else:
-                # Last resort: use the path anyway (might work in some environments)
-                print(f"Warning: Frontend directory may not exist: {frontend_dir}", file=sys.stderr)
-    
-    app = Flask(__name__, static_folder=frontend_dir, static_url_path='')
-    CORS(app)  # Enable CORS for all routes
-    
+    static_dir = _resolve_static_dir()
+    app = Flask(__name__, static_folder=static_dir, static_url_path='')
+    CORS(app)
+
     if test_config is None:
-        # Get environment variables with defaults
         spreadsheet_id = os.getenv('SPREADSHEET_ID')
         sheet_range = os.getenv('SHEET_RANGE', 'A:Q')
-        
+
         app.config.from_mapping(
             SPREADSHEET_ID=spreadsheet_id,
-            SHEET_RANGE=sheet_range
+            SHEET_RANGE=sheet_range,
+            CACHE_TTL_SECONDS=int(os.getenv('CACHE_TTL_SECONDS', str(CACHE_TTL_SECONDS))),
         )
-        
-        # Log configuration (without sensitive data)
+
         if not spreadsheet_id:
             print("Warning: SPREADSHEET_ID environment variable not set", file=sys.stderr)
     else:
         app.config.update(test_config)
-    
+
+    def _cached_breakdown():
+        now = time.time()
+        ttl = app.config.get('CACHE_TTL_SECONDS', CACHE_TTL_SECONDS)
+        if _cache['data'] is not None and now < _cache['expires_at']:
+            return _cache['data'], True
+
+        spreadsheet_id = app.config.get('SPREADSHEET_ID')
+        if not spreadsheet_id:
+            raise ValueError('SPREADSHEET_ID environment variable not set')
+
+        sheet_range = app.config.get('SHEET_RANGE', 'A:Q')
+        latest_row = fetch_sheet_data(spreadsheet_id, sheet_range)
+        data = process_hourly_breakdown(latest_row)
+        _cache['data'] = data
+        _cache['expires_at'] = now + ttl
+        return data, False
+
     @app.route('/api/hourly_breakdown')
     def hourly_breakdown():
-        """Return the hourly breakdown of people in each area."""
+        """Return latest area headcounts (cached briefly to reduce Sheets/CPU load)."""
         if not sheets_available or not fetch_sheet_data or not process_hourly_breakdown:
             return jsonify({
                 'error': 'Sheets module not available',
                 'status': 'error'
             }), 500
-        
+
         try:
-            spreadsheet_id = app.config.get('SPREADSHEET_ID')
-            if not spreadsheet_id:
-                return jsonify({
-                    'error': 'SPREADSHEET_ID environment variable not set',
-                    'status': 'error'
-                }), 500
-            
-            sheet_range = app.config.get('SHEET_RANGE', 'A:Q')
-            df = fetch_sheet_data(spreadsheet_id, sheet_range)
-            data = process_hourly_breakdown(df)
-            return jsonify(data)
+            data, from_cache = _cached_breakdown()
+            resp = make_response(jsonify(data))
+            ttl = app.config.get('CACHE_TTL_SECONDS', CACHE_TTL_SECONDS)
+            resp.headers['Cache-Control'] = f'public, s-maxage={ttl}, max-age=30'
+            resp.headers['X-Cache'] = 'HIT' if from_cache else 'MISS'
+            return resp
         except Exception as e:
             import traceback
             error_msg = str(e)
@@ -94,32 +111,26 @@ def create_app(test_config=None):
                 'type': type(e).__name__
             }), 500
 
-    # Serve the single-page frontend (index.html) at the root
     @app.route('/')
     def index():
         try:
             return app.send_static_file('index.html')
         except Exception as e:
             return f"Error serving index.html: {str(e)}", 500
-    
-    # Serve static files (CSS, JS) - but not API routes
+
     @app.route('/<path:path>')
     def serve_static(path):
-        """Serve static files from frontend directory."""
-        # Don't serve API routes as static files
         if path.startswith('api/'):
             return "Not found", 404
-        
+
         try:
-            # Serve files from styles and scripts directories
             if path.startswith('styles/') or path.startswith('scripts/'):
                 return app.send_static_file(path)
-            # Try to serve other files (like favicon)
             try:
                 return app.send_static_file(path)
-            except:
+            except Exception:
                 return "File not found", 404
         except Exception as e:
             return f"Error serving file: {str(e)}", 500
-    
+
     return app
