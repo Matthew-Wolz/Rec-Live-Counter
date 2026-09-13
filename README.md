@@ -37,9 +37,10 @@ Browser / iframe on recreation.truman.edu
 
 **Production (Vercel)**
 
-- Files under `public/` are served as **static** assets (no Python CPU for HTML/CSS/JS).
-- Only `/api/*` is rewritten to the Python entrypoint (`api/index.py` → Flask). See `vercel.json`.
+- `vercel.json` builds **two** outputs: `@vercel/python` for `api/index.py`, and `@vercel/static` for `public/**`.
+- Routes: `/api/*` → Flask; `/` and other paths → `public/` (HTML/CSS/JS on the CDN, not Python).
 - API responses are cached in-process for ~**2 minutes** and send `Cache-Control` so concurrent viewers share one Sheets read.
+- Do **not** use a Python-only `builds` config — that ships the API but 404s the entire UI. Do **not** drop the Python build — that 404s `/api/*` while the UI still loads.
 
 **Local development**
 
