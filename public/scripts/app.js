@@ -126,6 +126,20 @@ async function fetchHourlyBreakdown() {
   return await res.json();
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchHourlyBreakdownWithRetry() {
+  try {
+    return await fetchHourlyBreakdown();
+  } catch (firstError) {
+    console.warn('API fetch failed; retrying once in 2s...', firstError);
+    await sleep(2000);
+    return await fetchHourlyBreakdown();
+  }
+}
+
 function handleError(error) {
   console.error('Error fetching data:', error);
 }
@@ -239,7 +253,7 @@ async function refresh() {
       return;
     }
 
-    const payload = await fetchHourlyBreakdown();
+    const payload = await fetchHourlyBreakdownWithRetry();
     latestPayload = payload;
 
     if (isDataStale(payload.last_updated_utc)) {
@@ -256,11 +270,15 @@ async function refresh() {
     console.log('Data refreshed successfully. Next refresh in 15 minutes.');
   } catch (error) {
     handleError(error);
-    latestPayload = null;
-    showStatusMessage(
-      true,
-      'Unable to load live occupancy data right now. Please try again shortly.'
-    );
+    // Keep the last good chart on transient failures; only error if we never loaded
+    if (latestPayload) {
+      console.warn('API refresh failed; keeping last successful chart');
+    } else {
+      showStatusMessage(
+        true,
+        'Unable to load live occupancy data right now. Please try again shortly.'
+      );
+    }
     lastRefreshTime = Date.now();
   }
 }
